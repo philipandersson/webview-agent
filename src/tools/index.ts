@@ -1,5 +1,6 @@
 import { readTool, writeTool, editTool, lsTool, grepTool, findTool } from "./fs";
 import { bashTool } from "./bash";
+import { exaSearchTool, firecrawlScrapeTool } from "./web";
 import { errorMessage } from "../util";
 
 export type ToolDescriptor = {
@@ -107,6 +108,39 @@ export const toolDescriptors: ToolDescriptor[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "exa_search",
+    description:
+      "Fast web search via Exa. PREFER over spinning up a WebView when you just need to find URLs or quick facts — faster, cheaper, no browser cost. Returns ranked results with title/url/score and optionally inline text snippets. Good for the first stage of a fan-out (discovery). Use WebView as fallback when you need interactivity, login, or JS-rendered content.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        numResults: { type: "integer", description: "1–20, default 10." },
+        includeText: { type: "boolean", description: "Include page text snippets (up to 2000 chars each). Default false." },
+        type: { enum: ["auto", "keyword", "neural"], type: "string", description: "Search strategy. Default 'auto'." },
+        includeDomains: { type: "array", items: { type: "string" } },
+        excludeDomains: { type: "array", items: { type: "string" } },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "firecrawl_scrape",
+    description:
+      "Fetch a URL and return clean extracted markdown via Firecrawl. PREFER over WebView when you only need the content of a known URL (no interaction required) — Firecrawl handles bot-blocking, renders JS, and returns cleanly formatted markdown in one call. Returns { title, markdown, truncated, ... }. Markdown is capped at 20000 chars. Use WebView fallback when you need clicks, scrolls, screenshots, or per-element extraction.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string" },
+        onlyMainContent: { type: "boolean", description: "Strip nav/footer/sidebars. Default true." },
+        includeLinks: { type: "boolean", description: "Also return the list of outgoing links on the page (capped at 100). Default false." },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export const toolSchemas = toolDescriptors.map((t) => ({
@@ -161,6 +195,10 @@ export async function dispatch(name: string, rawArgs: string): Promise<DispatchR
         return { forModel: await findTool(args) };
       case "ls":
         return { forModel: await lsTool(args) };
+      case "exa_search":
+        return { forModel: await exaSearchTool(args) };
+      case "firecrawl_scrape":
+        return { forModel: await firecrawlScrapeTool(args) };
       default:
         return { forModel: { error: `unknown tool: ${name}` } };
     }

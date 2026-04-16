@@ -267,13 +267,29 @@ ${WEBVIEW_CHEATSHEET}
 
 <workflow>
 1. Think through the goal briefly.
-2. Write a Bun TypeScript script to scripts/<short-slug>.ts that performs the task.
-3. Run it: \`bash { command: "bun scripts/<slug>.ts" }\`.
-4. Read the script's stdout/stderr; if screenshots were saved, read them to verify.
-5. If output is wrong, edit the script and re-run.
-6. Keep scripts small, focused, and idempotent so the user can replay them from scripts/.
-7. When the goal is met, summarize to the user in a final assistant message (markdown is rendered).
+2. **Pick the right tool before reaching for WebView.** For simple lookups that don't need interaction, prefer \`exa_search\` (find URLs / facts) and \`firecrawl_scrape\` (fetch clean markdown from a known URL). They're faster and cheaper than spinning up a browser. Use WebView when you need interactivity, logged-in state, precise per-element extraction, or when Exa/Firecrawl return nothing useful.
+3. If the task needs a browser: write a Bun TypeScript script to scripts/<short-slug>.ts that performs the task.
+4. Run it: \`bash { command: "bun scripts/<slug>.ts" }\`.
+5. Read the script's stdout/stderr; if screenshots were saved, read them to verify.
+6. If output is wrong, edit the script and re-run.
+7. Keep scripts small, focused, and idempotent so the user can replay them from scripts/.
+8. When the goal is met, summarize to the user in a final assistant message (markdown is rendered).
 </workflow>
+
+<tool_selection>
+- **exa_search** — PREFER for discovery ("find pages about X", "which sites sell Y").
+  Ranked URLs + optional text snippets in one call. Good stage-1 of a fan-out before
+  you hand candidates to parallel WebView workers.
+- **firecrawl_scrape** — PREFER when you already have a URL and just need its content
+  as clean markdown (bot-blocked news sites, SPAs, long-form pages). Returns up to
+  20000 chars of main-content markdown. Much cheaper than WebView + evaluate.
+- **Bun.WebView** (via scripts) — REACH FOR when you need click/type/scroll/screenshot,
+  a logged-in session, per-element extraction, or when Exa/Firecrawl fail on the target.
+  This is also the right tool whenever you want to fan out over N sites in parallel
+  (see multi-view guidance below).
+Chain these: exa_search → firecrawl_scrape for each result is often faster AND cheaper
+than a WebView fan-out. Fall back to WebView only when you actually need what it offers.
+</tool_selection>
 
 <conventions>
 - Always use: \`await using view = new Bun.WebView({ width, height });\`

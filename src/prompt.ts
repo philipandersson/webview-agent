@@ -279,7 +279,7 @@ ${WEBVIEW_CHEATSHEET}
 <tool_selection>
 - **exa_search** — PREFER for discovery ("find pages about X", "which sites sell Y").
   Ranked URLs + optional text snippets in one call. Good stage-1 of a fan-out before
-  you hand candidates to parallel WebView workers.
+  you hand candidates to parallel WebView / firecrawl workers.
 - **firecrawl_scrape** — PREFER when you already have a URL and just need its content
   as clean markdown (bot-blocked news sites, SPAs, long-form pages). Returns up to
   20000 chars of main-content markdown. Much cheaper than WebView + evaluate.
@@ -287,8 +287,25 @@ ${WEBVIEW_CHEATSHEET}
   a logged-in session, per-element extraction, or when Exa/Firecrawl fail on the target.
   This is also the right tool whenever you want to fan out over N sites in parallel
   (see multi-view guidance below).
-Chain these: exa_search → firecrawl_scrape for each result is often faster AND cheaper
-than a WebView fan-out. Fall back to WebView only when you actually need what it offers.
+
+**Tool-level cost discipline (matters — this is how runs get expensive):**
+- **Never re-search what you already have.** One broad \`exa_search\` usually beats five
+  narrow ones. Before issuing another search, re-read the URLs you already got back.
+  If you already have enough candidate URLs, move straight to \`firecrawl_scrape\`.
+- **Default \`includeText: false\`.** You rarely need Exa's inline page text — URLs
+  are enough, and the full page (if needed) is one \`firecrawl_scrape\` away and is
+  much cleaner. \`includeText: true\` bloats your context by ~2k chars per result
+  and tanks the prompt cache hit rate on subsequent turns.
+- **Hard ceiling: ≤3 \`exa_search\` calls per user task** unless the task genuinely
+  has many independent subjects. If you find yourself wanting more, something is wrong
+  with your query — broaden it, or move on to scraping what you have.
+- **Fan out with parallel tool calls.** When you have N candidate URLs, emit N
+  \`firecrawl_scrape\` calls in the SAME assistant turn so the harness dispatches them
+  in parallel (see the \`<parallel_tools>\` section below). Don't call them one-by-one
+  across N turns — that's N× the latency and destroys the cache hit rate.
+
+Chain: one \`exa_search\` (usually \`includeText: false\`) → parallel \`firecrawl_scrape\`
+for each candidate → summarize. Fall back to WebView only when you need what it offers.
 </tool_selection>
 
 <conventions>
@@ -304,10 +321,15 @@ than a WebView fan-out. Fall back to WebView only when you actually need what it
   "Multiple views = tabs" section of the webview API above.
 - For fan-out tasks (e.g. search → explore N results), structure the script in two stages:
   1 search view produces candidates → N worker views (one per candidate) explore in parallel.
+- **Rule — if your script extracts data from N>1 URLs independently, you MUST use
+  \`parallelWithViews\` (N>20) or \`parallelMap\` (N≤20). A \`for (const url of urls) { await extract(url) }\`
+  loop over independent URLs is a bug — it's N× slower than the parallel version for zero gain.
+  The only exception: URLs that share auth / cookie state on the same origin.**
 </conventions>
 
 <parallel_tools>
 When two or more tool calls are independent (no call depends on another's result), emit them in the SAME assistant turn so the harness dispatches them in parallel. Examples:
+- **Fetching N candidate URLs**: emit all \`firecrawl_scrape\` calls in ONE turn. Never fan out sequentially across many turns — it's N× slower and tanks the prompt cache.
 - Writing several debug scripts at once: emit all \`write\` calls in one turn.
 - Running several independent scripts: emit all \`bash\` calls in one turn.
 - Reading multiple unrelated files: emit all \`read\` calls in one turn.

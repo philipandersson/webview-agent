@@ -1,3 +1,6 @@
+import { renderKittyImageFromB64 } from "./src/render";
+import { isObject } from "./src/util";
+
 type Story = {
   id: string;
   title: string;
@@ -8,36 +11,6 @@ type Story = {
 };
 
 type Result = Story & { pageTitle?: string; excerpt?: string; error?: string };
-
-function renderKittyImage(b64: string, cols = 33): void {
-  if (!process.stdout.isTTY) {
-    console.log(`    [screenshot skipped: stdout is not a TTY, ${b64.length} b64 bytes]`);
-    return;
-  }
-
-  const ESC = "\x1b";
-  const ST = `${ESC}\\`;
-  const CHUNK = 4096;
-
-  if (b64.length <= CHUNK) {
-    process.stdout.write(`${ESC}_Ga=T,f=100,c=${cols},m=0;${b64}${ST}\n`);
-    return;
-  }
-
-  for (let i = 0; i < b64.length; i += CHUNK) {
-    const chunk = b64.slice(i, i + CHUNK);
-    const isFirst = i === 0;
-    const isLast = i + CHUNK >= b64.length;
-    const m = isLast ? 0 : 1;
-    const header = isFirst ? `a=T,f=100,c=${cols},m=${m}` : `m=${m}`;
-    process.stdout.write(`${ESC}_G${header};${chunk}${ST}`);
-  }
-  process.stdout.write("\n");
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
 
 function parseStories(raw: unknown): Story[] {
   if (!Array.isArray(raw)) throw new Error("expected array of stories from webview");
@@ -119,7 +92,7 @@ for (const [i, s] of stories.entries()) {
     await Bun.sleep(2000);
     const content = (await view.evaluate(extractContentJs)) as { title: string; text: string };
     const b64 = await view.screenshot({ encoding: "base64", format: "png" });
-    renderKittyImage(b64, 33);
+    await renderKittyImageFromB64(b64, "image/png", 33);
     results.push({ ...s, pageTitle: content.title, excerpt: content.text });
     console.log(`    -> ${content.text.length} chars extracted\n`);
   } catch (err) {

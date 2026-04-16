@@ -2,6 +2,7 @@ import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Agent } from "./agent";
 import * as render from "./render";
+import { errorMessage } from "./util";
 import pc from "picocolors";
 
 async function main(): Promise<void> {
@@ -47,10 +48,6 @@ async function main(): Promise<void> {
 
   rl.close();
   console.log(pc.dim("  bye."));
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 main().catch((err: unknown) => {

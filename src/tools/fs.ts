@@ -1,4 +1,5 @@
 import { safePath, WORKSPACE } from "./paths";
+import { renderMarkdown } from "../render";
 import { readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { $ } from "bun";
@@ -33,13 +34,7 @@ export async function readTool(args: {
   const source = await Bun.file(abs).text();
 
   if (ext === ".md") {
-    const ansi = Bun.markdown.ansi(source, {
-      colors: true,
-      hyperlinks: true,
-      kittyGraphics: true,
-      columns: Math.max(40, process.stdout.columns || 80),
-    });
-    return { kind: "markdown", source, ansi, path: args.path };
+    return { kind: "markdown", source, ansi: renderMarkdown(source), path: args.path };
   }
 
   const all = source.split("\n");

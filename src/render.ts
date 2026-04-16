@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -7,7 +7,7 @@ const ESC = "\x1b";
 const ST = `${ESC}\\`;
 const CHUNK = 4096;
 
-export function renderKittyImageFromB64(b64: string, mime = "image/png", cols = 40): void {
+export async function renderKittyImageFromB64(b64: string, mime = "image/png", cols = 40): Promise<void> {
   if (!process.stdout.isTTY) {
     console.log(pc.dim(`    [image: ${b64.length} b64 bytes, stdout is not a TTY]`));
     return;
@@ -15,7 +15,7 @@ export function renderKittyImageFromB64(b64: string, mime = "image/png", cols = 
 
   let pngB64 = b64;
   if (mime !== "image/png") {
-    const converted = convertToPngBase64(b64, mime);
+    const converted = await convertToPngBase64(b64, mime);
     if (!converted) {
       console.log(pc.dim(`    [image: could not convert ${mime} to png]`));
       return;
@@ -39,7 +39,7 @@ export function renderKittyImageFromB64(b64: string, mime = "image/png", cols = 
   process.stdout.write("\n");
 }
 
-function convertToPngBase64(b64: string, mime: string): string | null {
+async function convertToPngBase64(b64: string, mime: string): Promise<string | null> {
   const extMap: Record<string, string> = {
     "image/jpeg": "jpg",
     "image/webp": "webp",
@@ -48,22 +48,36 @@ function convertToPngBase64(b64: string, mime: string): string | null {
   const ext = extMap[mime];
   if (!ext) return null;
 
-  const dir = mkdtempSync(path.join(tmpdir(), "bun-agent-img-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "bun-agent-img-"));
   const src = path.join(dir, `in.${ext}`);
   const dst = path.join(dir, `out.png`);
   try {
-    writeFileSync(src, Buffer.from(b64, "base64"));
-    const proc = Bun.spawnSync(["sips", "-s", "format", "png", src, "--out", dst], {
+    await Bun.write(src, Buffer.from(b64, "base64"));
+    const proc = Bun.spawn(["sips", "-s", "format", "png", src, "--out", dst], {
       stdout: "ignore",
       stderr: "ignore",
     });
-    if (proc.exitCode !== 0) return null;
-    return readFileSync(dst).toString("base64");
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) return null;
+    return Buffer.from(await Bun.file(dst).arrayBuffer()).toString("base64");
   } catch {
     return null;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
   }
+}
+
+export function renderMarkdown(source: string, cols?: number): string {
+  return Bun.markdown.ansi(source, {
+    colors: true,
+    hyperlinks: true,
+    kittyGraphics: true,
+    columns: cols ?? Math.max(40, process.stdout.columns || 80),
+  });
+}
+
+function indent2(s: string): string {
+  return s.split("\n").map((l) => (l.length ? `  ${l}` : "")).join("\n");
 }
 
 export function reasoning(delta: string): void {
@@ -159,26 +173,12 @@ export function assistantFlush(): void {
 
 function writeAssistantBlock(md: string): void {
   const cols = Math.max(40, (process.stdout.columns ?? 80) - 4);
-  const out = Bun.markdown.ansi(md, {
-    colors: true,
-    hyperlinks: true,
-    kittyGraphics: true,
-    columns: cols,
-  });
-  const indented = out
-    .split("\n")
-    .map((l) => (l.length ? `  ${l}` : ""))
-    .join("\n");
-  process.stdout.write(indented);
-  if (!out.endsWith("\n")) process.stdout.write("\n");
+  const out = renderMarkdown(md, cols);
+  renderMarkdownAnsi(out);
   process.stdout.write("\n");
 }
 
 export function renderMarkdownAnsi(ansi: string): void {
-  const indented = ansi
-    .split("\n")
-    .map((l) => (l.length ? `  ${l}` : ""))
-    .join("\n");
-  process.stdout.write(indented);
+  process.stdout.write(indent2(ansi));
   if (!ansi.endsWith("\n")) process.stdout.write("\n");
 }

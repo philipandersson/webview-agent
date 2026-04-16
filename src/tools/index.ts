@@ -1,5 +1,6 @@
 import { readTool, writeTool, editTool, lsTool, grepTool, findTool } from "./fs";
 import { bashTool } from "./bash";
+import { errorMessage } from "../util";
 
 export type ToolDescriptor = {
   name: string;
@@ -120,15 +121,9 @@ export type DispatchResult = {
   forModel: unknown;
   image?: { mime: string; base64: string };
   markdown?: { ansi: string };
-  screenshotPath?: string;
 };
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 export async function dispatch(name: string, rawArgs: string): Promise<DispatchResult> {
-  // LLM-produced JSON; individual tool handlers destructure/throw on bad shape.
   let args: any;
   try {
     args = rawArgs ? JSON.parse(rawArgs) : {};

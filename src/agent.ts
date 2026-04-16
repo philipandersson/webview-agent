@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { toolSchemas, dispatch, type DispatchResult } from "./tools";
 import { buildSystemPrompt } from "./prompt";
 import * as render from "./render";
+import { isObject } from "./util";
 
 type ResponseInputItem = OpenAI.Responses.ResponseInputItem;
 type ResponseOutputItem = OpenAI.Responses.ResponseOutputItem;
@@ -82,7 +83,7 @@ export class Agent {
 
         if (!this.silent) render.toolCall(name, parsedArgs);
         const result = await dispatch(name, rawArgs);
-        if (!this.silent) this.renderToolResult(name, result);
+        if (!this.silent) await this.renderToolResult(name, result);
 
         this.input.push({
           type: "function_call_output",
@@ -197,7 +198,7 @@ export class Agent {
     return completedOutput;
   }
 
-  private renderToolResult(name: string, result: DispatchResult): void {
+  private async renderToolResult(name: string, result: DispatchResult): Promise<void> {
     const fm = result.forModel;
 
     if (isErrorResult(fm)) {
@@ -214,16 +215,12 @@ export class Agent {
     if (result.image) {
       const bytes = isObject(fm) && typeof fm.bytes === "number" ? fm.bytes : "";
       render.toolResult(`${name} · image ${bytes} bytes`);
-      render.renderKittyImageFromB64(result.image.base64, result.image.mime);
+      await render.renderKittyImageFromB64(result.image.base64, result.image.mime);
       return;
     }
 
     render.toolResult(`${name} · ${summarize(name, fm)}`);
   }
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
 }
 
 function isErrorResult(v: unknown): v is { error: unknown } {

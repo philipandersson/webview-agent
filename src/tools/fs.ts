@@ -75,18 +75,17 @@ export async function editTool(args: {
   const abs = safePath(args.path);
   const src = await Bun.file(abs).text();
 
-  if (!src.includes(args.old_string)) {
-    throw new Error(`old_string not found in ${args.path}`);
-  }
-
   let next: string;
   let replacements: number;
 
   if (args.replace_all) {
-    next = src.split(args.old_string).join(args.new_string);
-    replacements = src.split(args.old_string).length - 1;
+    const parts = src.split(args.old_string);
+    if (parts.length === 1) throw new Error(`old_string not found in ${args.path}`);
+    next = parts.join(args.new_string);
+    replacements = parts.length - 1;
   } else {
     const first = src.indexOf(args.old_string);
+    if (first === -1) throw new Error(`old_string not found in ${args.path}`);
     const second = src.indexOf(args.old_string, first + args.old_string.length);
     if (second !== -1) {
       throw new Error(
@@ -106,7 +105,6 @@ export async function lsTool(args: {
 }): Promise<{ entries: Array<{ name: string; kind: "file" | "dir"; size?: number }>; path: string }> {
   const rel = args.path ?? "";
   const abs = safePath(rel);
-  await mkdir(abs, { recursive: true });
   const names = await readdir(abs);
   const entries = await Promise.all(
     names.map(async (name) => {

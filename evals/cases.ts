@@ -1,3 +1,5 @@
+import { isObject } from "../src/util";
+
 // Eval cases. Each case is a user prompt plus a set of assertions. Assertions
 // score the agent's behavior along three axes:
 //   - STRUCTURAL: did the agent produce the right *kind* of solution?
@@ -31,36 +33,32 @@ function countDistinctSites(scripts: { content: string }[], sites: string[]): nu
   return sites.filter((s) => joined.includes(s)).length;
 }
 
+function tryParseJson(raw: string | undefined, into: unknown[]): void {
+  if (!raw) return;
+  try {
+    into.push(JSON.parse(raw));
+  } catch {
+    /* ignore malformed JSON inside a candidate block */
+  }
+}
+
 function extractJsonBlocks(text: string): unknown[] {
   // Grab any ```json fenced block. If none, try greedy `{...}` / `[...]` at top level.
   const out: unknown[] = [];
-  const fence = /```(?:json)?\s*([\s\S]+?)```/g;
-  let m: RegExpExecArray | null;
-  while ((m = fence.exec(text)) !== null) {
-    try {
-      out.push(JSON.parse(m[1]!));
-    } catch {
-      /* ignore */
-    }
+  for (const m of text.matchAll(/```(?:json)?\s*([\s\S]+?)```/g)) {
+    tryParseJson(m[1], out);
   }
   if (out.length === 0) {
     const greedy = text.match(/(\{[\s\S]+\}|\[[\s\S]+\])/);
-    if (greedy) {
-      try {
-        out.push(JSON.parse(greedy[1]!));
-      } catch {
-        /* ignore */
-      }
-    }
+    tryParseJson(greedy?.[1], out);
   }
   return out;
 }
 
 function flatten(v: unknown): unknown[] {
   if (Array.isArray(v)) return v.flatMap(flatten);
-  if (v && typeof v === "object") {
-    const obj = v as Record<string, unknown>;
-    for (const val of Object.values(obj)) {
+  if (isObject(v)) {
+    for (const val of Object.values(v)) {
       if (Array.isArray(val)) return val;
     }
     return [v];
@@ -113,7 +111,7 @@ export const cases: EvalCase[] = [
       const items = blocks.flatMap(flatten).filter((x): x is Record<string, unknown> =>
         !!x && typeof x === "object",
       );
-      const withUrl = items.filter((x) => typeof x.url === "string" && (x.url as string).startsWith("http"));
+      const withUrl = items.filter((x) => typeof x.url === "string" && x.url.startsWith("http"));
       return [
         {
           name: "final message contains JSON",
@@ -189,8 +187,7 @@ export const cases: EvalCase[] = [
           name: "≥8 have a website url",
           pass:
             items.filter(
-              (x) =>
-                typeof x.website === "string" && (x.website as string).includes("."),
+              (x) => typeof x.website === "string" && x.website.includes("."),
             ).length >= 8,
         },
       ];
@@ -238,8 +235,7 @@ export const cases: EvalCase[] = [
       );
       const withProfile = items.filter(
         (x) =>
-          typeof x.profileUrl === "string" &&
-          (x.profileUrl as string).includes("github.com/"),
+          typeof x.profileUrl === "string" && x.profileUrl.includes("github.com/"),
       );
       return [
         {

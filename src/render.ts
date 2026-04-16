@@ -2,6 +2,7 @@ import pc from "picocolors";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { isObject } from "./util";
 
 const ESC = "\x1b";
 const ST = `${ESC}\\`;
@@ -111,10 +112,9 @@ export function toolCall(name: string, args: unknown): void {
 }
 
 function summarizeArgs(args: unknown): string {
-  if (!args || typeof args !== "object") return "";
-  const obj = args as Record<string, unknown>;
+  if (!isObject(args)) return "";
   const parts: string[] = [];
-  for (const [k, v] of Object.entries(obj)) {
+  for (const [k, v] of Object.entries(args)) {
     let s: string;
     if (typeof v === "string") {
       s = v.length > 60 ? JSON.stringify(v.slice(0, 60)) + "…" : JSON.stringify(v);

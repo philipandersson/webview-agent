@@ -65,11 +65,11 @@ export async function parallelMapSettled<T, R>(
   poolSize: number,
   worker: (item: T, index: number) => Promise<R>,
 ): Promise<Settled<R>[]> {
-  return parallelMap(items, poolSize, async (item, i) => {
+  return parallelMap<T, Settled<R>>(items, poolSize, async (item, i) => {
     try {
-      return { ok: true, value: await worker(item, i) } as Settled<R>;
+      return { ok: true, value: await worker(item, i) };
     } catch (err) {
-      return { ok: false, error: String(err) } as Settled<R>;
+      return { ok: false, error: String(err) };
     }
   });
 }

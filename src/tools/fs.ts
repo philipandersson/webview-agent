@@ -25,10 +25,11 @@ export async function readTool(args: {
   const abs = safePath(args.path);
   const ext = path.extname(abs).toLowerCase();
 
-  if (ext in IMAGE_EXT) {
+  const mime = IMAGE_EXT[ext];
+  if (mime) {
     const bytes = await Bun.file(abs).arrayBuffer();
     const base64 = Buffer.from(bytes).toString("base64");
-    return { kind: "image", mime: IMAGE_EXT[ext]!, base64, path: args.path, bytes: bytes.byteLength };
+    return { kind: "image", mime, base64, path: args.path, bytes: bytes.byteLength };
   }
 
   const source = await Bun.file(abs).text();

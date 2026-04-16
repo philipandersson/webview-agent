@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun src/cli.ts",
     "test": "bun test",
-    "typecheck": "bun x tsc --noEmit"
+    "typecheck": "bun x tsc --noEmit",
+    "eval": "bun evals/runner.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -26,5 +26,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  // workspace/ is the agent's scratchpad (gitignored). It contains
+  // auto-generated demo scripts that are verified by running them, not by
+  // tsc. Excluding keeps the project's typecheck signal clean.
+  "exclude": ["workspace", "node_modules"]
 }

@@ -35,3 +35,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # agent workspace
 workspace/
+
+# claude code harness state
+.claude/
+
+# eval run artifacts
+evals/results/

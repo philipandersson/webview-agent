@@ -17,6 +17,14 @@ export type AgentOptions = {
   model?: string;
 };
 
+export type AgentUsage = {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+};
+
 export class Agent {
   private client: OpenAI;
   private instructions: string;
@@ -24,6 +32,13 @@ export class Agent {
   private silent: boolean;
   private model: string;
   private lastFinalText = "";
+  private usage: AgentUsage = {
+    turns: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    reasoningTokens: 0,
+  };
 
   constructor(client?: OpenAI, opts: AgentOptions = {}) {
     this.client = client ?? new OpenAI();
@@ -38,6 +53,14 @@ export class Agent {
 
   getLastFinalText(): string {
     return this.lastFinalText;
+  }
+
+  getUsage(): AgentUsage {
+    return { ...this.usage };
+  }
+
+  getModel(): string {
+    return this.model;
   }
 
   async run(userGoal: string): Promise<void> {
@@ -183,6 +206,14 @@ export class Agent {
       if (event.type === "response.completed") {
         completedOutput = event.response.output ?? [];
         sawCompleted = true;
+        const u = event.response.usage;
+        if (u) {
+          this.usage.turns += 1;
+          this.usage.inputTokens += u.input_tokens ?? 0;
+          this.usage.outputTokens += u.output_tokens ?? 0;
+          this.usage.cachedInputTokens += u.input_tokens_details?.cached_tokens ?? 0;
+          this.usage.reasoningTokens += u.output_tokens_details?.reasoning_tokens ?? 0;
+        }
         continue;
       }
 

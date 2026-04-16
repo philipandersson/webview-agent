@@ -53,6 +53,7 @@ export class Agent {
         instructions: this.instructions,
         input: this.input,
         tools: toolSchemas,
+        parallel_tool_calls: true,
         reasoning: { effort: "low", summary: "auto" },
         stream: true,
       });
@@ -74,20 +75,25 @@ export class Agent {
         return;
       }
 
-      for (const call of functionCalls) {
-        const { name, arguments: rawArgs, call_id: callId } = call;
-        let parsedArgs: unknown = {};
-        try {
-          parsedArgs = rawArgs ? JSON.parse(rawArgs) : {};
-        } catch {}
+      if (!this.silent) {
+        for (const call of functionCalls) {
+          render.toolCall(call.name, safeParse(call.arguments));
+        }
+      }
 
-        if (!this.silent) render.toolCall(name, parsedArgs);
-        const result = await dispatch(name, rawArgs);
-        if (!this.silent) await this.renderToolResult(name, result);
+      const results = await Promise.all(
+        functionCalls.map(async (call) => ({
+          call,
+          result: await dispatch(call.name, call.arguments),
+        })),
+      );
+
+      for (const { call, result } of results) {
+        if (!this.silent) await this.renderToolResult(call.name, result);
 
         this.input.push({
           type: "function_call_output",
-          call_id: callId,
+          call_id: call.call_id,
           output:
             typeof result.forModel === "string"
               ? result.forModel
@@ -100,7 +106,7 @@ export class Agent {
             content: [
               {
                 type: "input_text",
-                text: `(image shown to user from tool "${name}" · call_id=${callId})`,
+                text: `(image shown to user from tool "${call.name}" · call_id=${call.call_id})`,
               },
               {
                 type: "input_image",
@@ -225,6 +231,14 @@ export class Agent {
 
 function isErrorResult(v: unknown): v is { error: unknown } {
   return isObject(v) && "error" in v;
+}
+
+function safeParse(raw: string | undefined): unknown {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
 }
 
 function summarize(name: string, fm: unknown): string {

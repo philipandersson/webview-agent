@@ -103,6 +103,76 @@ describe("Agent", () => {
     await expect(agent.run("try")).rejects.toThrow(/completed/i);
   });
 
+  test("dispatches multiple tool calls in parallel within one turn", async () => {
+    const firstOutput = [
+      {
+        type: "function_call",
+        id: "fc_a",
+        call_id: "call_a",
+        name: "bash",
+        arguments: JSON.stringify({ command: "sleep 0.3 && echo A" }),
+      },
+      {
+        type: "function_call",
+        id: "fc_b",
+        call_id: "call_b",
+        name: "bash",
+        arguments: JSON.stringify({ command: "sleep 0.3 && echo B" }),
+      },
+      {
+        type: "function_call",
+        id: "fc_c",
+        call_id: "call_c",
+        name: "bash",
+        arguments: JSON.stringify({ command: "sleep 0.3 && echo C" }),
+      },
+    ];
+
+    const secondOutput = [
+      {
+        type: "message",
+        id: "msg_1",
+        role: "assistant",
+        content: [{ type: "output_text", text: "All done." }],
+      },
+    ];
+
+    const mock = makeMockClient([
+      {
+        output: firstOutput,
+        [Symbol.asyncIterator]: makeStreamEvents([
+          { type: "response.output_item.done", item: firstOutput[0] },
+          { type: "response.output_item.done", item: firstOutput[1] },
+          { type: "response.output_item.done", item: firstOutput[2] },
+          { type: "response.completed", response: { output: firstOutput } },
+        ])[Symbol.asyncIterator],
+      },
+      {
+        output: secondOutput,
+        [Symbol.asyncIterator]: makeStreamEvents([
+          { type: "response.output_item.done", item: secondOutput[0] },
+          { type: "response.completed", response: { output: secondOutput } },
+        ])[Symbol.asyncIterator],
+      },
+    ]);
+
+    const agent = new Agent(mock as any, { silent: true });
+    const start = performance.now();
+    await agent.run("run three sleeps");
+    const elapsed = performance.now() - start;
+
+    // Three 300ms sleeps in parallel should finish well under 600ms (sequential lower bound).
+    expect(elapsed).toBeLessThan(600);
+
+    const history = agent.getHistory();
+    const outputs = history.filter((h: any) => h.type === "function_call_output");
+    expect(outputs.map((o: any) => o.call_id)).toEqual(["call_a", "call_b", "call_c"]);
+    for (const o of outputs as any[]) {
+      const parsed = JSON.parse(o.output);
+      expect(parsed.exitCode).toBe(0);
+    }
+  });
+
   test("returns error JSON to model on unknown tool", async () => {
     const firstOutput = [
       {

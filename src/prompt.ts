@@ -156,6 +156,15 @@ ${WEBVIEW_CHEATSHEET}
 - Do not spawn your own long-running processes — scripts should exit after one pass.
 </conventions>
 
+<parallel_tools>
+When two or more tool calls are independent (no call depends on another's result), emit them in the SAME assistant turn so the harness dispatches them in parallel. Examples:
+- Writing several debug scripts at once: emit all \`write\` calls in one turn.
+- Running several independent scripts: emit all \`bash\` calls in one turn.
+- Reading multiple unrelated files: emit all \`read\` calls in one turn.
+
+Do NOT parallelize when a later call uses an earlier result (e.g. grep → then read the matched file).
+</parallel_tools>
+
 <edit_rules>
 - \`edit\` requires EXACT whitespace match on old_string.
 - old_string must be unique in the file unless you pass replace_all=true.

@@ -12,7 +12,9 @@
 
 import { Agent, type AgentUsage } from "../src/agent";
 import { envNum } from "../src/env";
-import { cases, type EvalCase, type Assertion, type ToolCallSummary } from "./cases";
+import { isObject } from "../src/util";
+import { cases, type EvalCase, type ToolCallSummary } from "./cases";
+import { fmtMs, printCase, printSummary, type CaseResult } from "./report";
 
 // Placeholder rate card — override via env if needed.
 const DEFAULT_PRICE_IN_PER_MTOK = envNum("EVAL_PRICE_IN", 2.5); // $/Mtok
@@ -20,32 +22,12 @@ const DEFAULT_PRICE_OUT_PER_MTOK = envNum("EVAL_PRICE_OUT", 10);
 const DEFAULT_PRICE_CACHED_PER_MTOK = envNum("EVAL_PRICE_CACHED", 0.25);
 const PER_CASE_TIMEOUT_MS = envNum("EVAL_TIMEOUT_MS", 10 * 60 * 1000);
 
-type CaseResult = {
-  id: string;
-  wallMs: number;
-  usage: AgentUsage;
-  toolCalls: ToolCallSummary[];
-  costUsd: number;
-  scriptsWritten: string[];
-  assertions: Assertion[];
-  passed: number;
-  total: number;
-  passRate: number;
-  finalTextLen: number;
-  error?: string;
-};
-
 function tallyToolCalls(history: readonly unknown[]): ToolCallSummary[] {
   const counts = new Map<string, number>();
   for (const h of history) {
-    if (
-      h &&
-      typeof h === "object" &&
-      (h as { type?: string }).type === "function_call"
-    ) {
-      const name = (h as { name?: string }).name ?? "?";
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    }
+    if (!isObject(h) || h.type !== "function_call") continue;
+    const name = typeof h.name === "string" ? h.name : "?";
+    counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
@@ -127,63 +109,6 @@ async function runOne(c: EvalCase, model?: string): Promise<CaseResult> {
     finalTextLen: finalText.length,
     ...(error ? { error } : {}),
   };
-}
-
-function fmtMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  return `${Math.floor(s / 60)}m${Math.round(s % 60)}s`;
-}
-
-function printCase(r: CaseResult): void {
-  console.log(`\n━━━ ${r.id} ━━━`);
-  console.log(
-    `  wall: ${fmtMs(r.wallMs)}   turns: ${r.usage.turns}   tok in/out/cached/reason: ${r.usage.inputTokens} / ${r.usage.outputTokens} / ${r.usage.cachedInputTokens} / ${r.usage.reasoningTokens}   ≈$${r.costUsd.toFixed(4)}`,
-  );
-  console.log(`  scripts written: ${r.scriptsWritten.length} (${r.scriptsWritten.slice(0, 3).join(", ")}${r.scriptsWritten.length > 3 ? ", …" : ""})`);
-  console.log(`  tool calls: ${r.toolCalls.map((t) => `${t.name}×${t.count}`).join(", ") || "(none)"}`);
-  console.log(`  final text: ${r.finalTextLen} chars`);
-  if (r.error) console.log(`  ERROR: ${r.error}`);
-  for (const a of r.assertions) {
-    const mark = a.pass ? "✓" : "✗";
-    const det = a.detail ? ` — ${a.detail}` : "";
-    console.log(`    ${mark} ${a.name}${det}`);
-  }
-  console.log(`  score: ${r.passed}/${r.total} (${Math.round(r.passRate * 100)}%)`);
-}
-
-function printSummary(results: CaseResult[]): void {
-  const totals = results.reduce(
-    (acc, r) => ({
-      wallMs: acc.wallMs + r.wallMs,
-      turns: acc.turns + r.usage.turns,
-      inTok: acc.inTok + r.usage.inputTokens,
-      outTok: acc.outTok + r.usage.outputTokens,
-      cached: acc.cached + r.usage.cachedInputTokens,
-      reasoning: acc.reasoning + r.usage.reasoningTokens,
-      cost: acc.cost + r.costUsd,
-      passed: acc.passed + r.passed,
-      total: acc.total + r.total,
-    }),
-    { wallMs: 0, turns: 0, inTok: 0, outTok: 0, cached: 0, reasoning: 0, cost: 0, passed: 0, total: 0 },
-  );
-
-  console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log("  id                    wall     tok(in/out)        $       pass");
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  for (const r of results) {
-    const id = r.id.padEnd(22);
-    const wall = fmtMs(r.wallMs).padEnd(8);
-    const tok = `${r.usage.inputTokens}/${r.usage.outputTokens}`.padEnd(18);
-    const cost = `$${r.costUsd.toFixed(3)}`.padEnd(8);
-    const pass = `${r.passed}/${r.total}`;
-    console.log(`  ${id}${wall}${tok}${cost}${pass}`);
-  }
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log(
-    `  TOTAL                 ${fmtMs(totals.wallMs).padEnd(8)}${`${totals.inTok}/${totals.outTok}`.padEnd(18)}$${totals.cost.toFixed(3).padEnd(7)}${totals.passed}/${totals.total} (${Math.round((totals.passed / totals.total) * 100)}%)`,
-  );
 }
 
 async function main() {

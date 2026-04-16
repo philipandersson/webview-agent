@@ -2,12 +2,15 @@ import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Agent } from "./agent";
 import * as render from "./render";
+import { requireEnv } from "./env";
 import { errorMessage } from "./util";
 import pc from "picocolors";
 
 async function main(): Promise<void> {
-  if (!process.env.OPENAI_API_KEY) {
-    render.errorLine("OPENAI_API_KEY is not set. Add it to .env or the environment.");
+  try {
+    requireEnv("OPENAI_API_KEY", "Add it to .env or the environment.");
+  } catch (err) {
+    render.errorLine(errorMessage(err));
     process.exit(1);
   }
 

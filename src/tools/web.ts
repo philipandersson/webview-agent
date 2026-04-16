@@ -7,9 +7,9 @@
 // when you need interactivity (click, type, screenshot) or the page is
 // hostile to non-browser fetching.
 //
-// Both read their API keys from env:
-//   EXA_API_KEY
-//   FIRECRAWL_API_KEY
+// Both read their API keys from env (EXA_API_KEY, FIRECRAWL_API_KEY).
+
+import { requireEnv } from "../env";
 
 type ExaSearchArgs = {
   query: string;
@@ -38,12 +38,6 @@ const MAX_TEXT_PER_RESULT = 2000;
 const MAX_FIRECRAWL_MARKDOWN = 20000;
 const DEFAULT_TIMEOUT_MS = 30000;
 
-function requireKey(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`${name} is not set in the environment`);
-  return v;
-}
-
 async function fetchJson<T>(
   url: string,
   init: RequestInit & { timeoutMs?: number },
@@ -68,7 +62,7 @@ export async function exaSearchTool(args: ExaSearchArgs): Promise<{
   if (!args?.query || typeof args.query !== "string") {
     throw new Error("query is required");
   }
-  const key = requireKey("EXA_API_KEY");
+  const key = requireEnv("EXA_API_KEY");
   const numResults = Math.min(Math.max(args.numResults ?? 10, 1), MAX_EXA_RESULTS);
 
   const body: Record<string, unknown> = {
@@ -140,7 +134,7 @@ export async function firecrawlScrapeTool(args: FirecrawlArgs): Promise<{
   if (!args?.url || typeof args.url !== "string") {
     throw new Error("url is required");
   }
-  const key = requireKey("FIRECRAWL_API_KEY");
+  const key = requireEnv("FIRECRAWL_API_KEY");
 
   const formats: (string | { type: string })[] = ["markdown"];
   if (args.includeLinks) formats.push("links");

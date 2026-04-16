@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { toolSchemas, dispatch, type DispatchResult } from "./tools";
 import { buildSystemPrompt } from "./prompt";
 import * as render from "./render";
+import { envOr } from "./env";
 import { isObject } from "./util";
 
 type ResponseInputItem = OpenAI.Responses.ResponseInputItem;
@@ -10,7 +11,7 @@ type ResponseStreamEvent = OpenAI.Responses.ResponseStreamEvent;
 type ResponseFunctionToolCall = OpenAI.Responses.ResponseFunctionToolCall;
 type ResponseOutputMessage = OpenAI.Responses.ResponseOutputMessage;
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-5.4";
+const MODEL = envOr("OPENAI_MODEL", "gpt-5.4");
 
 export type AgentOptions = {
   silent?: boolean;

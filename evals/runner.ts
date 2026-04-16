@@ -11,13 +11,14 @@
 // plus tool calls. Expect $0.10 - $1.00 per case on GPT-5-class models.
 
 import { Agent, type AgentUsage } from "../src/agent";
+import { envNum } from "../src/env";
 import { cases, type EvalCase, type Assertion, type ToolCallSummary } from "./cases";
 
-// Placeholder rate card — override via --price-in / --price-out if needed.
-const DEFAULT_PRICE_IN_PER_MTOK = Number(process.env.EVAL_PRICE_IN ?? 2.5); // $/Mtok
-const DEFAULT_PRICE_OUT_PER_MTOK = Number(process.env.EVAL_PRICE_OUT ?? 10);
-const DEFAULT_PRICE_CACHED_PER_MTOK = Number(process.env.EVAL_PRICE_CACHED ?? 0.25);
-const PER_CASE_TIMEOUT_MS = Number(process.env.EVAL_TIMEOUT_MS ?? 10 * 60 * 1000);
+// Placeholder rate card — override via env if needed.
+const DEFAULT_PRICE_IN_PER_MTOK = envNum("EVAL_PRICE_IN", 2.5); // $/Mtok
+const DEFAULT_PRICE_OUT_PER_MTOK = envNum("EVAL_PRICE_OUT", 10);
+const DEFAULT_PRICE_CACHED_PER_MTOK = envNum("EVAL_PRICE_CACHED", 0.25);
+const PER_CASE_TIMEOUT_MS = envNum("EVAL_TIMEOUT_MS", 10 * 60 * 1000);
 
 type CaseResult = {
   id: string;

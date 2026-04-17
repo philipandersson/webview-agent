@@ -51,6 +51,7 @@ function estimateCostUsd(u: AgentUsage): number {
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  if (!Number.isFinite(ms)) return p;
   return Promise.race([
     p,
     new Promise<T>((_, rej) =>
@@ -60,13 +61,30 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 async function runOne(c: EvalCase, model?: string): Promise<CaseResult> {
+  if (c.cleanup?.length) {
+    for (const rel of c.cleanup) {
+      if (/[*?[]/.test(rel)) {
+        const glob = new Bun.Glob(rel);
+        for await (const match of glob.scan({ cwd: "workspace", onlyFiles: false })) {
+          await Bun.$`rm -rf workspace/${match}`.quiet().nothrow();
+        }
+      } else {
+        await Bun.$`rm -rf workspace/${rel}`.quiet().nothrow();
+      }
+    }
+  }
   const before = new Set(await listWorkspaceScripts());
-  const agent = new Agent(undefined, { silent: true, ...(model ? { model } : {}) });
+  const agent = new Agent(undefined, {
+    silent: true,
+    ...(model ? { model } : {}),
+    ...(c.maxTurns ? { maxTurns: c.maxTurns } : {}),
+  });
 
+  const caseTimeoutMs = c.timeoutMs ?? PER_CASE_TIMEOUT_MS;
   const t0 = performance.now();
   let error: string | undefined;
   try {
-    await withTimeout(agent.run(c.prompt), PER_CASE_TIMEOUT_MS);
+    await withTimeout(agent.run(c.prompt), caseTimeoutMs);
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   }
@@ -86,8 +104,8 @@ async function runOne(c: EvalCase, model?: string): Promise<CaseResult> {
   const finalText = agent.getLastFinalText();
   const toolCalls = tallyToolCalls(agent.getHistory());
 
-  const structural = c.structural(scriptRecords, toolCalls);
-  const outcome = c.outcome(finalText);
+  const structural = await c.structural(scriptRecords, toolCalls);
+  const outcome = await c.outcome(finalText);
   const assertions = [
     ...structural.map((a) => ({ ...a, name: `[struct] ${a.name}` })),
     ...outcome.map((a) => ({ ...a, name: `[outcome] ${a.name}` })),

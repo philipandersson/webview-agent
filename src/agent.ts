@@ -16,6 +16,9 @@ const MODEL = envOr("OPENAI_MODEL", "gpt-5.4");
 export type AgentOptions = {
   silent?: boolean;
   model?: string;
+  /** Max assistant turns before bailing. Default 40. Use a high number for
+   *  long-horizon jobs (full-site scrapes, multi-hour crawls). */
+  maxTurns?: number;
 };
 
 export type AgentUsage = {
@@ -32,6 +35,7 @@ export class Agent {
   private input: ResponseInputItem[] = [];
   private silent: boolean;
   private model: string;
+  private maxTurns: number;
   private lastFinalText = "";
   private usage: AgentUsage = {
     turns: 0,
@@ -46,6 +50,7 @@ export class Agent {
     this.instructions = buildSystemPrompt();
     this.silent = opts.silent ?? false;
     this.model = opts.model ?? MODEL;
+    this.maxTurns = opts.maxTurns ?? 40;
   }
 
   getHistory(): ResponseInputItem[] {
@@ -71,7 +76,7 @@ export class Agent {
     });
     this.lastFinalText = "";
 
-    for (let turn = 0; turn < 40; turn++) {
+    for (let turn = 0; turn < this.maxTurns; turn++) {
       const stream = await this.client.responses.create({
         model: this.model,
         instructions: this.instructions,

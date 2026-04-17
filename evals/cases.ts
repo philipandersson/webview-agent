@@ -18,11 +18,41 @@ export type ToolCallSummary = { name: string; count: number };
 export type EvalCase = {
   id: string;
   prompt: string;
+  /** Workspace paths (relative to workspace/) to delete before the run. */
+  cleanup?: string[];
+  /** Override the default per-case wall-time cap (ms). Use Infinity for none. */
+  timeoutMs?: number;
+  /** Override the agent's max-turns budget. Default 40. */
+  maxTurns?: number;
   /** Assertions on the scripts the agent wrote to workspace/scripts/. */
-  structural: (scripts: { path: string; content: string }[], tools: ToolCallSummary[]) => Assertion[];
+  structural: (
+    scripts: { path: string; content: string }[],
+    tools: ToolCallSummary[],
+  ) => Assertion[] | Promise<Assertion[]>;
   /** Assertions on the agent's final assistant message. */
-  outcome: (finalText: string) => Assertion[];
+  outcome: (finalText: string) => Assertion[] | Promise<Assertion[]>;
 };
+
+export async function tryReadWorkspace(relPath: string): Promise<string | null> {
+  const f = Bun.file(`workspace/${relPath}`);
+  if (!(await f.exists())) return null;
+  return await f.text();
+}
+
+export async function listWorkspaceFiles(
+  relDir: string,
+  ext?: string,
+): Promise<string[]> {
+  const pattern = ext ? `**/*${ext}` : `**/*`;
+  const glob = new Bun.Glob(pattern);
+  const out: string[] = [];
+  try {
+    for await (const f of glob.scan({ cwd: `workspace/${relDir}` })) out.push(f);
+  } catch {
+    /* dir may not exist — return empty */
+  }
+  return out.sort();
+}
 
 function any(scripts: { content: string }[], re: RegExp): boolean {
   return scripts.some((s) => re.test(s.content));
@@ -252,6 +282,104 @@ export const cases: EvalCase[] = [
           name: "≥5 have github.com profileUrl",
           pass: withProfile.length >= 5,
           detail: `${withProfile.length} with github profile`,
+        },
+      ];
+    },
+  },
+  {
+    id: "skv-scrape",
+    cleanup: ["skv-scrape", "scripts/skv-*.ts", "scripts/skv_*.ts", "scripts/skv*.ts"],
+    timeoutMs: Number.POSITIVE_INFINITY,
+    maxTurns: 400,
+    prompt: `Scrape the ENTIRE Skatteverket "Rättslig vägledning" site (Swedish tax authority legal guidance) into local markdown files. Start at https://www4.skatteverket.se/rattsligvagledning/. Goal is COMPLETENESS — every guidance page on the site, saved as a markdown file. It's a large site (thousands of pages); optimise time-per-page, not total wall-time.
+
+Workflow:
+1) Discover every page URL. Walk the navigation / table of contents exhaustively until you have the full set. Save the URL list + section hierarchy to workspace/skv-scrape/sitemap.md.
+2) Download every page as markdown to workspace/skv-scrape/pages/<safe-slug>.md. Skip any page you've already saved (idempotent). Parallelise aggressively — these URLs are independent.
+3) Maintain workspace/skv-scrape/progress.md as a live task log with markdown checkboxes ("- [ ] url" / "- [x] url"). A new session MUST be able to resume from this file: read progress.md, skip completed URLs, continue the rest.
+
+Fast-path guidance (optimise per-operation cost):
+- Use one WebView script with a pool of views (\`parallelWithViews\`, pool 8–15) for the download phase.
+- Accept cookies once on one view, reuse session across workers if the backend supports it.
+- Skip items already listed as "[x]" in progress.md.
+- Flush progress.md periodically (every N pages) so a crash loses at most N pages of state.
+
+In your final message: "Discovered N total URLs. Downloaded K pages (M skipped as already-done, F failed)." Give the paths of sitemap.md and progress.md and briefly describe the worst remaining category of errors (if any).`,
+    structural: async (scripts) => {
+      const sitemap = await tryReadWorkspace("skv-scrape/sitemap.md");
+      const progress = await tryReadWorkspace("skv-scrape/progress.md");
+      const pages = await listWorkspaceFiles("skv-scrape/pages", ".md");
+      const usedWebView = any(scripts, /new Bun\.WebView/);
+      const usedParallel = any(scripts, /parallelWithViews|parallelMap|Promise\.all/);
+      const sitemapUrlCount = sitemap ? (sitemap.match(/https?:\/\//g) ?? []).length : 0;
+      const progressChecked = progress ? (progress.match(/-\s*\[[xX]\]/g) ?? []).length : 0;
+      const pageSizes = await Promise.all(
+        pages.map(async (p) =>
+          (await tryReadWorkspace(`skv-scrape/pages/${p}`))?.length ?? 0,
+        ),
+      );
+      const pagesWithContent = pageSizes.filter((n) => n >= 300).length;
+      return [
+        {
+          name: "sitemap.md exists",
+          pass: !!sitemap && sitemap.length >= 500,
+          detail: sitemap ? `${sitemap.length} chars` : "missing",
+        },
+        {
+          name: "sitemap lists ≥500 URLs (real coverage)",
+          pass: sitemapUrlCount >= 500,
+          detail: `${sitemapUrlCount} urls`,
+        },
+        {
+          name: "progress.md exists with checkboxes",
+          pass: !!progress && /-\s*\[[ xX]\]/.test(progress),
+          detail: progress ? `${progress.length} chars, ${progressChecked} done` : "missing",
+        },
+        {
+          name: "progress.md tracks ≥500 items",
+          pass:
+            !!progress &&
+            (progress.match(/-\s*\[[ xX]\]/g) ?? []).length >= 500,
+          detail: progress ? `${(progress.match(/-\s*\[[ xX]\]/g) ?? []).length} items` : "n/a",
+        },
+        {
+          name: "≥500 pages downloaded as .md",
+          pass: pages.length >= 500,
+          detail: `${pages.length} .md files`,
+        },
+        {
+          name: "≥90% of downloaded pages have real content",
+          pass: pages.length > 0 && pagesWithContent / pages.length >= 0.9,
+          detail: `${pagesWithContent}/${pages.length} with ≥300 chars`,
+        },
+        {
+          name: "uses WebView",
+          pass: usedWebView,
+        },
+        {
+          name: "uses a parallel pool (parallelWithViews / parallelMap)",
+          pass:
+            any(scripts, /parallelWithViews|parallelMap/) ||
+            any(scripts, /Promise\.all\([\s\S]*?map/),
+          detail: usedParallel ? "found" : "none",
+        },
+      ];
+    },
+    outcome: (finalText) => {
+      return [
+        {
+          name: "mentions sitemap.md",
+          pass: /sitemap\.md/i.test(finalText),
+        },
+        {
+          name: "mentions progress.md / task log",
+          pass: /progress\.md|task log|tasklog/i.test(finalText),
+        },
+        {
+          name: "reports counts (discovered / downloaded / failed)",
+          pass:
+            /\b\d+\s+(urls?|pages?|sidor|markdown|\.md|files?)\b/i.test(finalText) ||
+            /(downloaded|saved|sparade|nedladdade)[^\n]{0,20}\b\d+\b/i.test(finalText),
         },
       ];
     },

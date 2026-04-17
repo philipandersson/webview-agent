@@ -4,7 +4,7 @@
 
 import { readTool, writeTool, editTool, lsTool, grepTool, findTool } from "./fs";
 import { bashTool } from "./bash";
-import { exaSearchTool, firecrawlScrapeTool } from "./web";
+import { exaSearchTool, fetchUrlTool, firecrawlScrapeTool } from "./web";
 import { errorMessage } from "../util";
 
 export { toolDescriptors, toolSchemas, type ToolDescriptor } from "./schemas";
@@ -53,6 +53,8 @@ export async function dispatch(name: string, rawArgs: string): Promise<DispatchR
         return { forModel: await findTool(args) };
       case "ls":
         return { forModel: await lsTool(args) };
+      case "fetch_url":
+        return { forModel: await fetchUrlTool(args) };
       case "exa_search":
         return { forModel: await exaSearchTool(args) };
       case "firecrawl_scrape":

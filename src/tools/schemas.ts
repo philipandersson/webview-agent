@@ -108,9 +108,23 @@ export const toolDescriptors: ToolDescriptor[] = [
     },
   },
   {
+    name: "fetch_url",
+    description:
+      "Cheap HTTP GET — a few hundred tokens, one request. Returns { status, finalUrl, contentType, bytes, title, metaDescription, textPreview, jsGated, jsGatedReason }. Use BEFORE firecrawl/WebView to peek at a URL: is it alive, is its content in server HTML, or is it JS-gated? If jsGated=true, go straight to WebView. If not, you can cheaply extract what you need from textPreview or escalate to firecrawl for the full markdown. `textPreview` is the first 2000 chars of visible text (HTML stripped).",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string" },
+        timeoutMs: { type: "integer", description: "Request timeout, default 15000." },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "exa_search",
     description:
-      "Fast web search via Exa. PREFER over spinning up a WebView when you just need to find URLs or quick facts — faster, cheaper, no browser cost. Returns ranked results with title/url/score and optionally inline text snippets. Good for the first stage of a fan-out (discovery). Use WebView as fallback when you need interactivity, login, or JS-rendered content.",
+      "Fast web search via Exa. Use for discovery — finding URLs or quick facts you don't have yet. Returns ranked results with title/url/score and optionally inline text snippets. Good stage-1 of a fan-out before you hand candidates to WebView workers. Keep numResults small and includeText:false unless you really need snippets.",
     parameters: {
       type: "object",
       properties: {
@@ -128,7 +142,7 @@ export const toolDescriptors: ToolDescriptor[] = [
   {
     name: "firecrawl_scrape",
     description:
-      "Fetch a URL and return clean extracted markdown via Firecrawl. PREFER over WebView when you only need the content of a known URL (no interaction required) — Firecrawl handles bot-blocking, renders JS, and returns cleanly formatted markdown in one call. Returns { title, markdown, truncated, ... }. Markdown is capped at 20000 chars. Use WebView fallback when you need clicks, scrolls, screenshots, or per-element extraction.",
+      "Fetch a URL and return clean extracted markdown via Firecrawl. Use when you specifically want clean long-form markdown (articles, docs, blog posts) from a page fetch_url already confirmed is text-heavy and not JS-gated. Returns { title, markdown, truncated, ... }. Markdown is capped at 20000 chars. For per-element data (prices, grids, listings), JS-rendered content, or interaction, use WebView with `evaluate` instead.",
     parameters: {
       type: "object",
       properties: {

@@ -267,7 +267,7 @@ ${WEBVIEW_CHEATSHEET}
 
 <workflow>
 1. Think through the goal briefly.
-2. **Pick the right tool before reaching for WebView.** For simple lookups that don't need interaction, prefer \`exa_search\` (find URLs / facts) and \`firecrawl_scrape\` (fetch clean markdown from a known URL). They're faster and cheaper than spinning up a browser. Use WebView when you need interactivity, logged-in state, precise per-element extraction, or when Exa/Firecrawl return nothing useful.
+2. **Pick by task shape** — see \`<tool_selection>\`. Summary: WebView for structured/interactive extraction; firecrawl_scrape for "download the text of this page as markdown"; fetch_url for cheap peeks; exa_search for discovering URLs.
 3. If the task needs a browser: write a Bun TypeScript script to scripts/<short-slug>.ts that performs the task.
 4. Run it: \`bash { command: "bun scripts/<slug>.ts" }\`.
 5. Read the script's stdout/stderr; if screenshots were saved, read them to verify.
@@ -277,35 +277,123 @@ ${WEBVIEW_CHEATSHEET}
 </workflow>
 
 <tool_selection>
-- **exa_search** — PREFER for discovery ("find pages about X", "which sites sell Y").
-  Ranked URLs + optional text snippets in one call. Good stage-1 of a fan-out before
-  you hand candidates to parallel WebView / firecrawl workers.
-- **firecrawl_scrape** — PREFER when you already have a URL and just need its content
-  as clean markdown (bot-blocked news sites, SPAs, long-form pages). Returns up to
-  20000 chars of main-content markdown. Much cheaper than WebView + evaluate.
-- **Bun.WebView** (via scripts) — REACH FOR when you need click/type/scroll/screenshot,
-  a logged-in session, per-element extraction, or when Exa/Firecrawl fail on the target.
-  This is also the right tool whenever you want to fan out over N sites in parallel
-  (see multi-view guidance below).
+Pick by task shape:
+- **"Extract structured records (price, year, card fields, listings)"** → WebView.
+- **"Download page text as clean markdown"** → firecrawl_scrape (fast path) with
+  WebView as fallback when firecrawl returns shell/blocked content.
+- **"Interactive / logged-in / click-driven"** → WebView only.
+- **"Find URLs I don't have yet"** → exa_search.
+- **"Peek at a URL before committing"** → fetch_url.
 
-**Tool-level cost discipline (matters — this is how runs get expensive):**
-- **Never re-search what you already have.** One broad \`exa_search\` usually beats five
-  narrow ones. Before issuing another search, re-read the URLs you already got back.
-  If you already have enough candidate URLs, move straight to \`firecrawl_scrape\`.
-- **Default \`includeText: false\`.** You rarely need Exa's inline page text — URLs
-  are enough, and the full page (if needed) is one \`firecrawl_scrape\` away and is
-  much cleaner. \`includeText: true\` bloats your context by ~2k chars per result
-  and tanks the prompt cache hit rate on subsequent turns.
+**Hard rule — if the task asks for N≥3 STRUCTURED records (listings, candidates,
+companies, profiles, products with per-item fields), you MUST write a WebView
+script with \`evaluate\` and run it.** \`fetch_url\`'s textPreview is a 2000-char
+peek, not an extractor. \`firecrawl_scrape\` gives clean markdown but loses
+per-field structure (price/year/mileage). One fan-out WebView script with
+\`evaluate\` returning per-record JSON wins.
+
+**Hard rule — sourcing tasks always start with a fresh discovery stage.** If
+the user asks "find N companies/people/listings matching X," your script must
+run the actual search (github.com/search, ycombinator.com/companies, the
+site's own /search) and extract candidate IDs from the results page — do NOT
+hardcode a candidate list from memory or from an older \`workspace/scripts/\`
+artifact. Prior scripts are patterns to learn from, not data sources for
+fresh results.
+
+- **Bun.WebView (scripts)** — your workhorse for structured extraction and
+  interactive workflows. Write one Bun script that opens one or more views,
+  navigates, and pulls data via \`evaluate\`. Best for:
+  - **Precise extraction via \`evaluate\`** — a tiny in-page script returning
+    clean JSON (\`document.querySelectorAll(...).map(...)\`) beats regex-parsing
+    scraped markdown in both accuracy and token cost. Prices, titles, links,
+    numbers, card fields — push the logic into the page, not the script.
+  - **JS-rendered / SPA content** — data React/Vue renders client-side that
+    isn't in the server HTML.
+  - **Bot-challenged sites** — Cloudflare / Akamai / login-walled.
+  - **Logged-in state, click/type/scroll, screenshots** — anything interactive.
+  - **Fan-out over many URLs** — ONE script that parallelizes.
+    **If N>1 URLs: \`parallelWithViews\` (N>20), \`parallelMap\` (5≤N≤20),
+    or \`Promise.all\` (N<5).** Import helpers from \`../../src/webview-pool.ts\`.
+    NEVER \`for (const url of urls) { await extract(url) }\` for independent URLs.
+    Sequential is OK ONLY when steps depend on each other (login → then scrape
+    authed pages on same view, or stage-1 result feeds stage-2).
+    **Once you hold a known list of URLs that don't depend on each other,
+    fan out** — whether the list came from a sitemap, a search result, a
+    stage-1 extraction, or hardcoded. Don't keep processing through a single
+    view just because an earlier phase used one.
+
+- **fetch_url** — cheap pre-flight (a few hundred tokens, one HTTP GET).
+  Returns \`{ status, title, metaDescription, textPreview, jsGated, … }\`. Use it
+  to peek at a URL: is the content in server HTML, or JS-gated? Also cheap to
+  verify a URL is alive / not 404. **jsGated=true does NOT mean go straight to
+  WebView** — firecrawl renders JS too, and is cheaper/faster than a fresh
+  WebView per page. It means: don't use plain \`fetch\`, use firecrawl or WebView.
+
+- **exa_search** — discovery: find URLs you don't have yet. Ranked
+  URLs + optional text snippets. Stage-1 of any N-site workflow. Keep
+  \`numResults\` small and \`includeText: false\` unless you need snippets.
+
+- **firecrawl_scrape** — first-choice for **downloading a page's full text
+  content as clean markdown** (articles, legal/policy docs, blog posts,
+  wiki-style pages). It renders JS, handles many bot walls that plain \`fetch\`
+  cannot (Akamai, Cloudflare), and returns ≤20k chars in one call — much
+  cheaper per page than WebView. When the goal is "the words on this page",
+  firecrawl is the answer.
+
+  **Never write \`fetch(url)\` in a script to download public content pages.**
+  Plain fetch has no JS rendering and no bot-wall handling. Use \`firecrawl_scrape\`
+  for content, or WebView if firecrawl returns empty/blocked content.
+
+  **Rate limit: ~250 requests/minute on the default plan.** When fanning out
+  firecrawl calls, keep \`pool × avg_req_seconds ≤ 4\` (e.g. pool=4 for ~1s
+  requests). On 429, sleep until the \`resets at\` time in the error body and
+  retry. WebView downloads aren't API-quota-bounded.
+
+**Typical chain for "download N pages as markdown":**
+1. Discover URLs (via exa, a sitemap, or WebView-driven traversal).
+2. \`firecrawl_scrape\` in parallel across all URLs — this is the fast path.
+3. If firecrawl returns shell/blocked content for >2 URLs in a row, switch to
+   a WebView fan-out script for the rest (one view per URL, \`parallelWithViews\`).
+
+**Typical chain for "extract structured records from N pages":**
+1. Discover URLs.
+2. ONE WebView script that fan-outs via \`parallelWithViews\` / \`parallelMap\` /
+   \`Promise.all\`, using \`evaluate\` to return per-record JSON.
+3. \`fetch_url\` in parallel beforehand is optional (cheap peek: alive? JS-gated?).
+
+**Escalation rule — don't keep hitting the same wall.** If ANY of these happen
+on more than 2 targets in a row, STOP the current approach and switch the
+download/extraction phase for the rest of the job:
+- \`fetch\` / \`fetch_url\` / \`firecrawl_scrape\` returns "Request Rejected",
+  "Please enable JavaScript", a captcha page, 403, or empty body → **switch to
+  WebView.** WebView is what you have a real browser for — USE IT.
+- Tool returns 429 / "Rate limit exceeded" → **two options, pick one:**
+  (a) throttle + retry per the server's \`retry-after\` / \`resets at\` — the
+  error body usually includes the exact reset time, wait it out and resume; or
+  (b) fall back to WebView for the remainder (no API quota on in-browser
+  navigation beyond the origin's own limits).
+- Your extracted content is obviously a shell / login wall / nav chrome only →
+  switch to WebView.
+Do not finish with a message saying "downloads blocked" or "rate-limited";
+those are unfinished tasks. Pivot and keep going.
+
+**Completion rule — output matches the goal.** If the task asked for N output
+artifacts (files / records / rows) and you produced 0 or ≪ N, the task is NOT
+complete. Diagnose, fix the bottleneck (typically: switch to WebView, add
+parallelism, retry failed items) and iterate. Never write a final "done"
+message declaring success with empty output because your first attempt failed.
+
+**Cost discipline (matters — this is how runs get expensive):**
+- **Never re-search what you already have.** One broad \`exa_search\` beats five
+  narrow ones. Re-read URLs you already got back before issuing another search.
+- **Default \`includeText: false\`.** URLs are enough; fetch the page with
+  \`firecrawl_scrape\` or \`evaluate\` when you need content. \`includeText: true\`
+  bloats context by ~2k chars per result and tanks cache hit rate on later turns.
 - **Hard ceiling: ≤3 \`exa_search\` calls per user task** unless the task genuinely
-  has many independent subjects. If you find yourself wanting more, something is wrong
-  with your query — broaden it, or move on to scraping what you have.
+  has many independent subjects.
 - **Fan out with parallel tool calls.** When you have N candidate URLs, emit N
-  \`firecrawl_scrape\` calls in the SAME assistant turn so the harness dispatches them
-  in parallel (see the \`<parallel_tools>\` section below). Don't call them one-by-one
-  across N turns — that's N× the latency and destroys the cache hit rate.
-
-Chain: one \`exa_search\` (usually \`includeText: false\`) → parallel \`firecrawl_scrape\`
-for each candidate → summarize. Fall back to WebView only when you need what it offers.
+  tool calls in the SAME assistant turn (see \`<parallel_tools>\`). Sequential
+  fan-out is N× slower and destroys the prompt cache.
 </tool_selection>
 
 <conventions>
